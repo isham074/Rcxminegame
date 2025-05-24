@@ -1,0 +1,254 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mines Game Enhanced</title>
+  <style>
+    body {
+      background-color: #121212;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 20px;
+    }
+    h1, p {
+      text-align: center;
+    }
+    .balance {
+      text-align: center;
+      margin: 10px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(5, 60px);
+      gap: 10px;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    .tile {
+      width: 60px;
+      height: 60px;
+      background: #1e1e1e;
+      border-radius: 10px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      transition: background 0.3s ease;
+    }
+    .tile.safe {
+      background: #4caf50;
+    }
+    .tile.mine {
+      background: #e53935;
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    input, button {
+      padding: 10px;
+      border-radius: 8px;
+      border: none;
+      font-size: 16px;
+    }
+    button {
+      background: #1e88e5;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: gray;
+      cursor: not-allowed;
+    }
+    .multiplier {
+      text-align: center;
+      font-size: 20px;
+      margin-top: 10px;
+    }
+    .history {
+      max-width: 500px;
+      margin: 30px auto;
+      background: #1e1e1e;
+      padding: 15px;
+      border-radius: 10px;
+    }
+    .history h3 {
+      margin-top: 0;
+    }
+    .history-entry {
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Mines Game</h1>
+  <p id="welcome"></p>
+  <div class="balance">Balance: <span id="balance">0</span> ৳</div>
+
+  <div class="controls">
+    <input type="number" id="betAmount" placeholder="Enter Bet" min="5">
+    <input type="number" id="mineCount" placeholder="Mines (min 2)" min="2" max="24">
+    <button onclick="startGame()">Start Game</button>
+    <button id="cashOutBtn" onclick="cashOut()" disabled>Cash Out</button>
+  </div>
+
+  <div class="multiplier">Multiplier: <span id="multiplier">x1.00</span></div>
+
+  <div class="grid" id="mineGrid"></div>
+
+  <div class="history">
+    <h3>Game History</h3>
+    <div id="historyList"></div>
+  </div>
+
+  <audio id="clickSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_c5b1b8a4d8.mp3" preload="auto"></audio>
+  <audio id="boomSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_34a6d4b558.mp3" preload="auto"></audio>
+
+  <script>
+    let username = localStorage.getItem('username');
+    if (!username) {
+      username = prompt("Enter your username:");
+      localStorage.setItem('username', username);
+    }
+
+    alert("Welcome, " + username + "!");
+    document.getElementById('welcome').innerText = "Welcome, " + username + "!";
+
+    let users = JSON.parse(localStorage.getItem("users")) || {};
+    if (!users[username]) {
+      users[username] = 0;
+      localStorage.setItem("users", JSON.stringify(users));
+    }
+
+    let mineIndexes = [];
+    let clickedSafe = 0;
+    let currentBet = 0;
+    let mineCount = 0;
+    let gameActive = false;
+
+    function getBalance() {
+      users = JSON.parse(localStorage.getItem("users")) || {};
+      return parseFloat(users[username]) || 0;
+    }
+
+    function setBalance(amount) {
+      users[username] = amount;
+      localStorage.setItem("users", JSON.stringify(users));
+      document.getElementById('balance').innerText = amount.toFixed(2);
+    }
+
+    function updateMultiplierDisplay() {
+      const multiplier = 1 + (clickedSafe * 0.2);
+      document.getElementById("multiplier").innerText = `x${multiplier.toFixed(2)}`;
+    }
+
+    function addHistory(entry) {
+      const key = "history_" + username;
+      const history = JSON.parse(localStorage.getItem(key)) || [];
+      history.unshift(entry);
+      localStorage.setItem(key, JSON.stringify(history.slice(0, 10)));
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const key = "history_" + username;
+      const history = JSON.parse(localStorage.getItem(key)) || [];
+      const list = document.getElementById("historyList");
+      list.innerHTML = "";
+      history.forEach(h => {
+        const div = document.createElement("div");
+        div.className = "history-entry";
+        div.innerText = `Bet: ৳${h.bet}, Mines: ${h.mines}, Safe: ${h.safe}, Result: ${h.result}, Win: ৳${h.win}`;
+        list.appendChild(div);
+      });
+    }
+
+    setBalance(getBalance());
+    renderHistory();
+
+    function startGame() {
+      const bet = parseFloat(document.getElementById('betAmount').value);
+      mineCount = parseInt(document.getElementById('mineCount').value);
+
+      if (bet < 5) return alert("Minimum bet is 5৳");
+      if (mineCount < 2 || mineCount > 24) return alert("Mines must be between 2 and 24");
+
+      let currentBalance = getBalance();
+      if (bet > currentBalance) return alert("Insufficient balance!");
+
+      setBalance(currentBalance - bet);
+      currentBet = bet;
+      clickedSafe = 0;
+      gameActive = true;
+      updateMultiplierDisplay();
+
+      document.getElementById("cashOutBtn").disabled = false;
+
+      const grid = document.getElementById('mineGrid');
+      grid.innerHTML = '';
+      const tiles = Array.from({ length: 25 }, (_, i) => i);
+      mineIndexes = [];
+
+      while (mineIndexes.length < mineCount) {
+        const random = Math.floor(Math.random() * tiles.length);
+        const picked = tiles.splice(random, 1)[0];
+        mineIndexes.push(picked);
+      }
+
+      for (let i = 0; i < 25; i++) {
+        const tile = document.createElement('div');
+        tile.classList.add('tile');
+        tile.onclick = function () {
+          if (!gameActive || this.classList.contains('safe') || this.classList.contains('mine')) return;
+          if (mineIndexes.includes(i)) {
+            this.classList.add('mine');
+            document.getElementById("boomSound").play();
+            alert("Boom! You hit a mine.");
+            gameActive = false;
+            document.getElementById("cashOutBtn").disabled = true;
+            disableGrid();
+            addHistory({ bet: currentBet, mines: mineCount, safe: clickedSafe, result: "Lose", win: 0 });
+          } else {
+            this.classList.add('safe');
+            clickedSafe++;
+            document.getElementById("clickSound").play();
+            updateMultiplierDisplay();
+          }
+        };
+        grid.appendChild(tile);
+      }
+    }
+
+    function disableGrid() {
+      document.querySelectorAll('.tile').forEach(tile => {
+        tile.onclick = null;
+      });
+    }
+
+    function cashOut() {
+      if (clickedSafe === 0 || !gameActive) {
+        alert("You need to open at least one tile before cashing out.");
+        return;
+      }
+
+      const multiplier = 1 + (clickedSafe * 0.2);
+      const reward = currentBet * multiplier;
+      const newBalance = getBalance() + reward;
+      setBalance(newBalance);
+
+      alert(`You cashed out! You won ৳${reward.toFixed(2)} (x${multiplier.toFixed(2)})`);
+      document.getElementById("cashOutBtn").disabled = true;
+      gameActive = false;
+      disableGrid();
+      addHistory({ bet: currentBet, mines: mineCount, safe: clickedSafe, result: "Win", win: reward.toFixed(2) });
+    }
+  </script>
+</body>
+</html>
